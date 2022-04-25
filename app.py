@@ -125,6 +125,12 @@ def forecast():
     
     # Save the figure in /static/images folder
     forecast_fig.figure.savefig(LOCAL_IMAGE_PATH + STATSMODEL_GENERATED_IMAGE_NAME)
+
+    # Uploads an images into the google cloud storage bucket
+    bucket = client.get_bucket(BUCKET_NAME)
+    new_blob = bucket.blob(STATSMODEL_GENERATED_IMAGE_NAME)
+    new_blob.upload_from_filename(
+        filename=LOCAL_IMAGE_PATH + STATSMODEL_GENERATED_IMAGE_NAME)
     # -----------------------------
 
     # Construct the response
