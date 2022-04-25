@@ -124,7 +124,7 @@ def forecast():
     # Plot the model loss image
     
     # Save the figure in /static/images folder
-    forecast_fig.savefig(LOCAL_IMAGE_PATH + STATSMODEL_GENERATED_IMAGE_NAME)
+    forecast_fig.figure.savefig(LOCAL_IMAGE_PATH + STATSMODEL_GENERATED_IMAGE_NAME)
     # -----------------------------
 
     # Construct the response
