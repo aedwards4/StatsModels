@@ -1,10 +1,10 @@
 steps:
   # Build the container image
   - name: "gcr.io/cloud-builders/docker"
-    args: ["build", "-t", "gcr.io/lstm-347721/lstm", "."]
+    args: ["build", "-t", "gcr.io/mythical-module-348315/StatsModels", "."]
   # Push the container image to Container Registry
   - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "gcr.io/lstm-347721/lstm"]
+    args: ["push", "gcr.io/mythical-module-348315/StatsModels"]
   # Deploy container image to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
@@ -12,9 +12,9 @@ steps:
       [
         "run",
         "deploy",
-        "lstm",
+        "StatsModels",
         "--image",
-        "gcr.io/lstm-347721/lstm",
+        "gcr.io/mythical-module-348315/StatsModels",
         "--region",
         "us-central1",
         "--platform",
@@ -23,4 +23,4 @@ steps:
         "8080",
       ]
 images:
-  - gcr.io/lstm-347721/lstm
+  - gcr.io/mythical-module-348315/StatsModels

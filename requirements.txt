@@ -2,8 +2,7 @@ flask
 pandas
 numpy
 matplotlib
-tensorflow
-keras
 sklearn
 google-cloud-storage
 flask-cors
+statsmodels

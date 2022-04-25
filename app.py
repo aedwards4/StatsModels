@@ -17,20 +17,10 @@ import matplotlib.dates as mdates
 import time
 from flask_cors import CORS
 
-# -------- FB/PROPHET --------
-# from fbprophet import Prophet
-# -----------------------------
-
 # -------- STATSMODELS --------
-#import statsmodels.api as sm
+import statsmodels.api as sm
 # -----------------------------
 
-# Tensorflow (Keras & LSTM) related packages
-import tensorflow as tf
-from tensorflow.python.keras import Sequential
-from tensorflow.python.keras.layers import Input, Dense, LSTM, Dropout
-from tensorflow.python.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import MinMaxScaler
 
 # Import required storage package from Google Cloud Storage
 from google.cloud import storage
@@ -60,9 +50,6 @@ def build_actual_response(response):
                          "PUT, GET, POST, DELETE, OPTIONS")
     return response
 
-
-
-
 '''
 API route path is  "/api/forecast"
 This API will accept only POST request
@@ -76,6 +63,8 @@ def forecast():
     type = body["type"]     # "created_at"
     repo_name = body["repo"]    
     
+    # 2. Create data frame
+
     data_frame = pd.DataFrame(issues)
     if type == "created_at" or type == "closed_at":
         df1 = data_frame.groupby([type], as_index=False).count()
@@ -85,90 +74,27 @@ def forecast():
         df = data_frame.groupby([type], as_index=False).count()
     df.columns = ['ds', 'y']
 
-    df['ds'] = df['ds'].astype('datetime64[ns]')
-    array = df.to_numpy()
-    x = np.array([time.mktime(i[0].timetuple()) for i in array])
-    y = np.array([i[1] for i in array])
-
-    lzip = lambda *x: list(zip(*x))
-
-    days = df.groupby('ds')['ds'].value_counts()
-    Y = df['y'].values
-    X = lzip(*days.index.values)[0]
-    firstDay = min(X)
-
-    '''
-    To achieve data consistancy with both actual data and predicted values, 
-    add zeros to dates that do not have orders
-    [firstDay + timedelta(days=day) for day in range((max(X) - firstDay).days + 1)]
-    '''
-    Ys = [0, ]*((max(X) - firstDay).days + 1)
-    days = pd.Series([firstDay + timedelta(days=i)
-                      for i in range(len(Ys))])
-    for x, y in zip(X, Y):
-        Ys[(x - firstDay).days] = y
-
-    # Modify the data that is suitable for LSTM
-    Ys = np.array(Ys)
-    Ys = Ys.astype('float32')
-    Ys = np.reshape(Ys, (-1, 1))
-    # Apply min max scaler to transform the data
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    Ys = scaler.fit_transform(Ys)
-    # Divide training - test data with 80-20 split
-    train_size = int(len(Ys) * 0.80)
-    test_size = len(Ys) - train_size
-    train, test = Ys[0:train_size, :], Ys[test_size:len(Ys), :] #//////////
-    print('train size:', len(train), ", test size:", len(test))
-
-    # Create the training and test dataset
-    def create_dataset(dataset, look_back=1):
-        X, Y = [], []
-        while len(dataset) < look_back-1:
-            look_back = look_back // 2
-        for i in range(len(dataset)-look_back-1):
-            a = dataset[i:(i+look_back), 0]
-            X.append(a)
-            Y.append(dataset[i + look_back, 0])
-        return np.array(X), np.array(Y)
-    '''
-    Look back decides how many days of data the model looks at for prediction
-    Here LSTM looks at approximately one month data
-    '''
-    look_back = 30
-    X_train, Y_train = create_dataset(train, look_back)
-    X_test, Y_test = create_dataset(test, look_back)
-
-    # Reshape input to be [samples, time steps, features]
-    X_train = np.reshape(X_train, (X_train.shape[0], 1, X_train.shape[1]))
-    X_test = np.reshape(X_test, (X_test.shape[0], 1, X_test.shape[1]))
-
-    # Verifying the shapes
-    X_train.shape, X_test.shape, Y_train.shape, Y_test.shape
-
-    # Model to forecast
-    model = Sequential()
-    model.add(LSTM(100, input_shape=(X_train.shape[1], X_train.shape[2])))
-    model.add(Dropout(0.2))
-    model.add(Dense(1))
-    model.compile(loss='mean_squared_error', optimizer='adam')
-
 
     # -------- STATSMODELS --------
+# 3. Decompose Time Series Data into Trend and Seasonality
 
+    df.set_index('y')
+    predict = sm.tsa.seasonal_decompose(df.index, period=5)
+    figure = predict.plot()
+    figure.set_size_inches(15,8)
+
+    # 4. Fit model and get the result
+
+    model = sm.tsa.ARIMA(df['y'].iloc[1:], order = (1,0,0))
+    results = model.fit()
+
+    # 5. Add the forecasted values as a new column to data frame
+    df['forecast'] = results.fittedvalues
+
+    # 6. Plot
+    forecast_fig = df[['y','forecast']].plot(figsize=(16,12))
     # -----------------------------
 
-
-    # Fit the model with training data and set appropriate hyper parameters
-    history = model.fit(X_train, Y_train, epochs=20, batch_size=70, validation_data=(X_test, Y_test),
-                        callbacks=[EarlyStopping(monitor='val_loss', patience=10)], verbose=1, shuffle=False)
-
-    # -------- FB/PROPHET ---------
-    # model_fb = Prophet()
-    # model_fb.fit(df)
-    # future = model_fb.make_future_dataframe(periods=700)
-    # forecast = model_fb.predict(future)
-    # -----------------------------
 
     '''
     Creating image URL
@@ -182,21 +108,6 @@ def forecast():
     # DO NOT DELETE "static/images" FOLDER as it is used to store figures/images generated by matplotlib
     LOCAL_IMAGE_PATH = "static/images/"
 
-    # Creating the image path for model loss, LSTM generated image and all issues data image
-    MODEL_LOSS_IMAGE_NAME = "model_loss_" + type +"_"+ repo_name + ".png"
-    MODEL_LOSS_URL = BASE_IMAGE_PATH + MODEL_LOSS_IMAGE_NAME
-
-    LSTM_GENERATED_IMAGE_NAME = "lstm_generated_data_" + type +"_" + repo_name + ".png"
-    LSTM_GENERATED_URL = BASE_IMAGE_PATH + LSTM_GENERATED_IMAGE_NAME
-
-    ALL_ISSUES_DATA_IMAGE_NAME = "all_issues_data_" + type + "_"+ repo_name + ".png"
-    ALL_ISSUES_DATA_URL = BASE_IMAGE_PATH + ALL_ISSUES_DATA_IMAGE_NAME
-
-    # -------- FB/PROPHET ---------
-    FBPROPHET_GENERATED_IMAGE_NAME = "fbprophet_generated_data_" + type +"_" + repo_name + ".png"
-
-    FBPROPHET_GENERATED_URL = BASE_IMAGE_PATH + FBPROPHET_GENERATED_IMAGE_NAME
-    # -----------------------------
 
     # -------- STATSMODELS --------
     STATSMODEL_GENERATED_IMAGE_NAME = "statsmodel_generated_data_" + type +"_" + repo_name + ".png"
@@ -211,85 +122,14 @@ def forecast():
     # Model summary()
 
     # Plot the model loss image
-    plt.figure(figsize=(8, 4))
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Test Loss')
-    plt.title('Model Loss For ' + type)
-    plt.ylabel('Loss')
-    plt.xlabel('Epochs')
-    plt.legend(loc='upper right')
+    
     # Save the figure in /static/images folder
-    plt.savefig(LOCAL_IMAGE_PATH + MODEL_LOSS_IMAGE_NAME)
-
-    # Predict issues for test data
-    y_pred = model.predict(X_test)
-
-    # -------- LSTM ---------
-    # Plot the LSTM Generated image
-    fig, axs = plt.subplots(1, 1, figsize=(10, 4))
-    X = mdates.date2num(days)
-    axs.plot(np.arange(0, len(Y_train)), Y_train, 'g', label="history")
-    axs.plot(np.arange(len(Y_train), len(Y_train) + len(Y_test)),
-             Y_test, marker='.', label="true")
-    axs.plot(np.arange(len(Y_train), len(Y_train) + len(Y_test)),
-             y_pred, 'r', label="prediction")
-    axs.legend()
-    axs.set_title('LSTM Generated Data For ' + type)
-    axs.set_xlabel('Time Steps')
-    axs.set_ylabel('Issues')
-    # Save the figure in /static/images folder
-    plt.savefig(LOCAL_IMAGE_PATH + LSTM_GENERATED_IMAGE_NAME)
+    forecast_fig.savefig(LOCAL_IMAGE_PATH + STATSMODEL_GENERATED_IMAGE_NAME)
     # -----------------------------
-
-    # -------- FB/PROPHET ---------
-    # 5. Plot forecast
-    # forecast_fig = model_fb.plot(forecast)
-    # forecast_fig.legend()
-    # forecast_fig.set_title('FB Prophet Generated Data For ' + type)
-    # forecast_fig.set_xlabel('Time Steps')
-    # forecast_fig.set_ylabel('Issues')
-    # forecast_fig.savefig(LOCAL_IMAGE_PATH + FBPROPHET_GENERATED_IMAGE_NAME)
-    # -----------------------------
-
-
-    # -------- STATSMODELS --------
-
-    # -----------------------------
-
-
-
-
-    # Plot the All Issues data images
-    fig, axs = plt.subplots(1, 1, figsize=(10, 4))
-    X = mdates.date2num(days)
-    axs.plot(X, Ys, 'purple', marker='.')
-    locator = mdates.AutoDateLocator()
-    axs.xaxis.set_major_locator(locator)
-    axs.xaxis.set_major_formatter(mdates.AutoDateFormatter(locator))
-    axs.legend()
-    axs.set_title('All Issues Data')
-    axs.set_xlabel('Date')
-    axs.set_ylabel('Issues')
-    # Save the figure in /static/images folder
-    plt.savefig(LOCAL_IMAGE_PATH + ALL_ISSUES_DATA_IMAGE_NAME)
-
-    # Uploads an images into the google cloud storage bucket
-    bucket = client.get_bucket(BUCKET_NAME)
-    new_blob = bucket.blob(MODEL_LOSS_IMAGE_NAME)
-    new_blob.upload_from_filename(
-        filename=LOCAL_IMAGE_PATH + MODEL_LOSS_IMAGE_NAME)
-    new_blob = bucket.blob(ALL_ISSUES_DATA_IMAGE_NAME)
-    new_blob.upload_from_filename(
-        filename=LOCAL_IMAGE_PATH + ALL_ISSUES_DATA_IMAGE_NAME)
-    new_blob = bucket.blob(LSTM_GENERATED_IMAGE_NAME)
-    new_blob.upload_from_filename(
-        filename=LOCAL_IMAGE_PATH + LSTM_GENERATED_IMAGE_NAME)
 
     # Construct the response
     json_response = {
-        "model_loss_image_url": MODEL_LOSS_URL,
-        "lstm_generated_image_url": LSTM_GENERATED_URL,
-        "all_issues_data_image": ALL_ISSUES_DATA_URL
+        "sm_generated_image_url": STATSMODEL_GENERATED_URL,
     }
     # Returns image url back to flask microservice
     return jsonify(json_response)
