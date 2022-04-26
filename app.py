@@ -69,6 +69,8 @@ def forecast():
     if type == "created_at" or type == "closed_at":
         df1 = data_frame.groupby([type], as_index=False).count()
         df = df1[[type, 'issue_number']]
+    elif type == "daily_created_at" or type == "daily_closed_at":
+        df = data_frame.groupby([type], as_index=False).sum()
     else:
         data_frame['y'] = 1
         df = data_frame.groupby([type], as_index=False).count()
